@@ -6,4 +6,11 @@ pub struct Config {
  
     #[clap(long, env)]
     pub database_name: String,
+
+    #[clap(long, env)]
+    pub roadmap_file_path: String,
+    
+    #[clap(long, env)]
+    pub openai_sk: String,
+
 }

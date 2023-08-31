@@ -4,6 +4,7 @@ use mongodb::{ Client, options::ClientOptions };
 
 use tir_api::config::Config;
 use tir_api::http;
+use tir_api::knowledge;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -18,11 +19,14 @@ async fn main() -> anyhow::Result<()> {
     // This will exit with a help message if something is wrong.
     let config = Config::parse();
 
-    let mut client_options = ClientOptions::parse(&config.database_url).await?;
+    let client_options = ClientOptions::parse(&config.database_url).await?;
 
     // Get a handle to the deployment.
     let client = Client::with_options(client_options)?;
     let db: mongodb::Database = client.database(&config.database_name);
+
+    println!("!Build knowledge!");
+    knowledge::build(&config, &db).await;
 
     // Finally, we spin up our API.
     http::serve(config, db).await?;

@@ -18,3 +18,5 @@ mongodb = "2.6.1"
 clap = { version = "4.0.0", features = ["derive", "env"] }
 anyhow = "1.0.75"
 tower-http = { version = "0.4.3", features = ["trace"] }
+serde_yaml = "0.9.24"
+tir-engine = { path = "../tir-engine" }
