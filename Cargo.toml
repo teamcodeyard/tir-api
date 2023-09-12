@@ -20,3 +20,6 @@ anyhow = "1.0.75"
 tower-http = { version = "0.4.3", features = ["trace"] }
 serde_yaml = "0.9.24"
 tir-engine = { path = "../tir-engine" }
+indicatif = "0.17.6"
+validator = {version= "0.16.1", features = ["derive"]}
+thiserror =  "1.0.48"

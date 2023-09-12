@@ -9,6 +9,7 @@ use std::{
 use tower_http::trace::TraceLayer;
 
 mod users;
+mod validation;
 
 #[derive(Clone)]
 pub(crate) struct ApiContext {

@@ -25,7 +25,6 @@ async fn main() -> anyhow::Result<()> {
     let client = Client::with_options(client_options)?;
     let db: mongodb::Database = client.database(&config.database_name);
 
-    println!("!Build knowledge!");
     knowledge::build(&config, &db).await;
 
     // Finally, we spin up our API.
