@@ -1,10 +1,11 @@
-use axum::{ routing::{ get, post }, http::StatusCode, response::IntoResponse, Json, Router };
 use clap::Parser;
-use mongodb::{ Client, options::ClientOptions };
+use mongodb::{options::ClientOptions, Client};
 
 use tir_api::config::Config;
 use tir_api::http;
 use tir_api::knowledge;
+
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -12,8 +13,13 @@ async fn main() -> anyhow::Result<()> {
     // since we're not going to use a `.env` file if we deploy this application.
     dotenv::dotenv().ok();
 
-    // Initialize the logger.
-    env_logger::init();
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "tir_api=debug,tower_http=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     // Parse our configuration from the environment.
     // This will exit with a help message if something is wrong.
