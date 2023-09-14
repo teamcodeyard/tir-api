@@ -70,7 +70,7 @@ impl IntoResponse for ServerError {
                     })))
                 },
                 ServerError::InternalError(err) => {
-                    // Just log the DB error, but don't send in the response.
+                    // Just log the error, but don't send in the response.
                     tracing::error!("internal error: {err}");
                     (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
                         "code": 500, "type": "INTERNAL_SERVER_ERROR", "message": "an internal server error occurred"
