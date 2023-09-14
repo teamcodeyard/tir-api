@@ -8,12 +8,13 @@ use std::{
 };
 use tower_http::trace::TraceLayer;
 
+mod extractors;
 mod users;
 mod validation;
-mod extractors;
 
 #[derive(Clone)]
 pub(crate) struct ApiContext {
+    #[allow(unused)]
     config: Arc<Config>,
     db: Database,
 }
@@ -39,7 +40,8 @@ pub async fn serve(config: Config, db: Database) -> anyhow::Result<()> {
     //
     // Note that any port below 1024 needs superuser privileges to bind on Linux,
     // so 80 isn't usually used as a default for that reason.
-    let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080));
+    let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8000));
+    tracing::debug!(addr=?addr, "Starting server..");
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await

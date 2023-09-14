@@ -1,24 +1,24 @@
-use mongodb;
-use mongodb::Collection;
+use crate::http::validation::ServerError;
+use crate::http::ApiContext;
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts},
     http::request::Parts,
-    Extension,
 };
-use crate::http::ApiContext;
-use crate::http::validation::ServerError;
+use mongodb;
+use mongodb::Collection;
 
 pub trait DBCollectable {
     fn get_collection_name() -> &'static str;
 }
 
 pub struct DatabaseCollection<T>(pub Collection<T>);
+
 #[async_trait]
 impl<S, T: DBCollectable> FromRequestParts<S> for DatabaseCollection<T>
-    where
-        S: Send + Sync,
-        ApiContext: FromRef<S>,
+where
+    S: Send + Sync,
+    ApiContext: FromRef<S>,
 {
     type Rejection = ServerError;
 
