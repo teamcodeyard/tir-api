@@ -1,11 +1,18 @@
 use std::borrow::Cow;
 
-use crate::http::ApiContext;
+use argon2::{
+    Algorithm, Argon2, Params, password_hash::SaltString, PasswordHasher,
+    Version,
+};
+use axum::{Json, Router};
 use axum::extract::State;
-use axum::routing::post;
 use axum::response::IntoResponse;
-use axum::{ Json, Router };
-use validator::{ Validate, ValidationError };
+use axum::routing::post;
+use mongodb::bson::doc;
+use validator::{Validate, ValidationError};
+
+use crate::http::ApiContext;
+use crate::http::extractors::{DatabaseCollection, DBCollectable};
 
 use super::validation::ValidatedJson;
 
@@ -25,6 +32,46 @@ struct UserRequest {
     password: String,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct User {
+    email: String,
+    password: String,
+}
+
+impl DBCollectable for User {
+    fn get_collection_name() -> &'static str {
+        "users"
+    }
+}
+
+async fn create_user(
+    ctx: State<ApiContext>,
+    DatabaseCollection(user_collection): DatabaseCollection<User>,
+    ValidatedJson(req): ValidatedJson<UserRequest>,
+) -> impl IntoResponse {
+    let hashed_password = compute_password_hash(req.password).unwrap();
+    let result = user_collection.insert_one(User {
+        email: req.email.clone(),
+        password: hashed_password,
+    }, None).await.unwrap();
+    Json(serde_json::json!( {
+        "id": result.inserted_id.as_object_id().unwrap().to_hex(),
+        "email": req.email.to_string(),
+    }))
+}
+
+fn compute_password_hash(password: String) -> Result<String, anyhow::Error> {
+    let salt = SaltString::generate(&mut rand::thread_rng());
+    let password_hash = Argon2::new(
+        Algorithm::Argon2id,
+        Version::V0x13,
+        Params::new(15000, 2, 1, None).unwrap(),
+    )
+        .hash_password(password.as_bytes(), &salt)?
+        .to_string();
+    Ok(password_hash)
+}
+
 fn validate_password(password: &str) -> Result<(), ValidationError> {
     let has_digit = password.chars().any(|c| c.is_ascii_digit());
     let has_uppercase = password.chars().any(|c| c.is_ascii_uppercase());
@@ -40,18 +87,4 @@ fn validate_password(password: &str) -> Result<(), ValidationError> {
         )
     );
     return Err(err);
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct User {
-    email: String,
-}
-
-async fn create_user(
-    ctx: State<ApiContext>,
-    ValidatedJson(req): ValidatedJson<UserRequest>
-) -> impl IntoResponse {
-    Json(User {
-        email: req.email.to_string(),
-    })
 }

@@ -10,6 +10,7 @@ use tower_http::trace::TraceLayer;
 
 mod users;
 mod validation;
+mod extractors;
 
 #[derive(Clone)]
 pub(crate) struct ApiContext {

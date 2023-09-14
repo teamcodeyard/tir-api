@@ -1,13 +1,12 @@
-use axum::extract::rejection::JsonRejection;
-use axum::extract::FromRequest;
-use axum::http::{ Request, StatusCode };
-use axum::response::{ IntoResponse, Response };
-use axum::Json;
-use serde_json::json;
-use validator::Validate;
 use axum::async_trait;
+use axum::extract::FromRequest;
+use axum::extract::rejection::JsonRejection;
+use axum::http::{Request, StatusCode};
+use axum::Json;
+use axum::response::{IntoResponse, Response};
 use serde::de::DeserializeOwned;
 use thiserror::Error;
+use validator::Validate;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ValidatedJson<T>(pub T);
@@ -31,7 +30,7 @@ impl<T, S, B> FromRequest<S, B>
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum ServerError {
+pub enum ServerError {
     #[error(transparent)] ValidationError(#[from] validator::ValidationErrors),
 
     #[error(transparent)] AxumFormRejection(#[from] JsonRejection),

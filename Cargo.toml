@@ -23,3 +23,5 @@ tir-engine = { path = "../tir-engine" }
 indicatif = "0.17.6"
 validator = {version= "0.16.1", features = ["derive"]}
 thiserror =  "1.0.48"
+argon2 = { version = "0.5", features = ["std"] }
+rand = "0.8.5"
