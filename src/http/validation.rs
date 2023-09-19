@@ -41,6 +41,9 @@ pub enum ServerError {
 
     #[error("internal server error occurred")]
     InternalError(#[from] anyhow::Error),
+
+    #[error("mongodb error occurred")]
+    BadRequest(String),
 }
 
 impl IntoResponse for ServerError {
@@ -67,6 +70,13 @@ impl IntoResponse for ServerError {
                     tracing::error!("Mongo error: {err}");
                     (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
                         "code": 500, "type": "INTERNAL_SERVER_ERROR", "message": "an internal server error occurred"
+                    })))
+                },
+                ServerError::BadRequest(err_message)  => {
+                    // Just log the error, but don't send in the response.
+                    tracing::error!("Bad request error: {err_message}");
+                    (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                        "code": 400, "type": "BAD_REQUEST", "message": err_message
                     })))
                 },
                 ServerError::InternalError(err) => {

@@ -1,16 +1,20 @@
 use std::borrow::Cow;
 
-use argon2::{password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version};
+use argon2::{ password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version };
 use axum::routing::post;
-use axum::{Json, Router};
+use axum::{ Json, Router };
 use mongodb::bson::doc;
-use validator::{Validate, ValidationError};
+use mongodb::{ Database, IndexModel };
+use mongodb::options::IndexOptions;
+use serde::{ Serialize, Deserialize };
+use validator::{ Validate, ValidationError };
 
-use crate::http::extractors::{DBCollectable, DatabaseCollection};
+
+use crate::http::extractors::{ DBCollectable, DatabaseCollection };
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
 
-use super::validation::{ServerError, ValidatedJson};
+use super::validation::{ ServerError, ValidatedJson };
 
 const SPECIAL_CHARS: &str = "!@#$%^&*()-=_+{}[]:;<>,.?";
 
@@ -18,6 +22,17 @@ pub(crate) fn router() -> Router<ApiContext> {
     // By having each module responsible for setting up its own routing,
     // it makes the root module a lot cleaner.
     Router::new().route("/api/users", post(create_user))
+}
+
+pub(crate) async fn create_indexes(db: &Database) {
+    let options = IndexOptions::builder().unique(true).build();
+    let model = IndexModel::builder()
+        .keys(doc! { "email": 1 })
+        .options(options)
+        .build();
+    db.collection::<User>(User::get_collection_name())
+        .create_index(model, None).await
+        .expect("error creating index!");
 }
 
 #[derive(serde::Deserialize, Validate)]
@@ -33,6 +48,12 @@ struct User {
     email: String,
     password: String,
 }
+#[derive(Debug, Serialize, Deserialize)]
+struct Claim {
+    sub: String,
+    iat: usize,
+    exp: usize,
+}
 
 impl DBCollectable for User {
     fn get_collection_name() -> &'static str {
@@ -42,23 +63,24 @@ impl DBCollectable for User {
 
 async fn create_user(
     DatabaseCollection(user_collection): DatabaseCollection<User>,
-    ValidatedJson(req): ValidatedJson<UserRequest>,
+    ValidatedJson(req): ValidatedJson<UserRequest>
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let hashed_password = spawn_blocking_with_tracing(move || compute_password_hash(req.password))
-        .await
-        .map_err(|e| ServerError::InternalError(e.into()))??;
+    let hashed_password = spawn_blocking_with_tracing(move ||
+        compute_password_hash(req.password)
+    ).await.map_err(|e| ServerError::InternalError(e.into()))??;
     let result = user_collection
         .insert_one(
             User {
                 email: req.email.clone(),
                 password: hashed_password,
             },
-            None,
-        )
-        .await?;
-
+            None
+        ).await
+        .map_err(|err| { ServerError::BadRequest("E-mail already exists".to_string()) })?;
+    let inserted_id = result.inserted_id.as_object_id().unwrap().to_hex();
+   
     Ok(Json(serde_json::json!( {
-        "id": result.inserted_id.as_object_id().unwrap().to_hex(),
+        "id": inserted_id,
         "email": req.email,
     })))
 }
@@ -68,10 +90,10 @@ fn compute_password_hash(password: String) -> Result<String, anyhow::Error> {
     let password_hash = Argon2::new(
         Algorithm::Argon2id,
         Version::V0x13,
-        Params::new(15000, 2, 1, None).unwrap(),
+        Params::new(15000, 2, 1, None).unwrap()
     )
-    .hash_password(password.as_bytes(), &salt)?
-    .to_string();
+        .hash_password(password.as_bytes(), &salt)?
+        .to_string();
     Ok(password_hash)
 }
 

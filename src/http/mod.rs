@@ -20,6 +20,7 @@ pub(crate) struct ApiContext {
 }
 
 pub async fn serve(config: Config, db: Database) -> anyhow::Result<()> {
+    create_indexes(&db).await;
     let api_context = ApiContext {
         config: Arc::new(config),
         db,
@@ -46,6 +47,10 @@ pub async fn serve(config: Config, db: Database) -> anyhow::Result<()> {
         .serve(app.into_make_service())
         .await
         .context("error running HTTP server")
+}
+
+async fn create_indexes(db: &Database) {
+    users::create_indexes(db).await;
 }
 
 fn api_router(api_context: ApiContext) -> Router {
