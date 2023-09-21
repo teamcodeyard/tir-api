@@ -25,3 +25,5 @@ validator = {version= "0.16.1", features = ["derive"]}
 thiserror =  "1.0.48"
 argon2 = { version = "0.5", features = ["std"] }
 rand = "0.8.5"
+jsonwebtoken = "8.3.0"
+time = "0.3.0"

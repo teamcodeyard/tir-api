@@ -1,8 +1,8 @@
-use mongodb::{ self, Database };
 use crate::config::Config;
-use tirengine::{ GPT, Thematic };
-use mongodb::bson::doc;
 use indicatif::ProgressBar;
+use mongodb::bson::doc;
+use mongodb::{self, Database};
+use tirengine::{Thematic, GPT};
 
 pub async fn build(config: &Config, db: &Database) {
     let collection = db.collection::<Thematic>("thematics");
@@ -13,10 +13,9 @@ pub async fn build(config: &Config, db: &Database) {
     }
     println!("!Build knowledge!");
     let contents = std::fs::read_to_string(config.roadmap_file_path.clone()).unwrap();
-    let mut thematics: Vec<Thematic> = serde_yaml
-        ::from_str(&contents)
-        .expect("Failed to parse YAML");
-  
+    let mut thematics: Vec<Thematic> =
+        serde_yaml::from_str(&contents).expect("Failed to parse YAML");
+
     let bar = ProgressBar::new(thematics.len() as _);
     let gpt = GPT::new(config.openai_sk.clone());
     for thematic in &mut thematics {

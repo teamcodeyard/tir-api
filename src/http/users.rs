@@ -1,20 +1,23 @@
 use std::borrow::Cow;
 
-use argon2::{ password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version };
+use argon2::{password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version};
 use axum::routing::post;
-use axum::{ Json, Router };
+use axum::{extract::State, Json, Router};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use mongodb::bson::doc;
-use mongodb::{ Database, IndexModel };
+use mongodb::bson::oid::ObjectId;
 use mongodb::options::IndexOptions;
-use serde::{ Serialize, Deserialize };
-use validator::{ Validate, ValidationError };
+use mongodb::{Database, IndexModel};
+use serde::{Deserialize, Serialize};
+use time;
+use time::Duration;
+use validator::{Validate, ValidationError};
 
-
-use crate::http::extractors::{ DBCollectable, DatabaseCollection };
+use crate::http::extractors::{DBCollectable, DatabaseCollection};
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
 
-use super::validation::{ ServerError, ValidatedJson };
+use super::validation::{ServerError, ValidatedJson};
 
 const SPECIAL_CHARS: &str = "!@#$%^&*()-=_+{}[]:;<>,.?";
 
@@ -31,7 +34,8 @@ pub(crate) async fn create_indexes(db: &Database) {
         .options(options)
         .build();
     db.collection::<User>(User::get_collection_name())
-        .create_index(model, None).await
+        .create_index(model, None)
+        .await
         .expect("error creating index!");
 }
 
@@ -47,12 +51,13 @@ struct UserRequest {
 struct User {
     email: String,
     password: String,
+    api_keys: Vec<String>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 struct Claim {
     sub: String,
-    iat: usize,
-    exp: usize,
+    iat: i64,
+    exp: i64,
 }
 
 impl DBCollectable for User {
@@ -62,26 +67,52 @@ impl DBCollectable for User {
 }
 
 async fn create_user(
+    State(ctx): State<ApiContext>,
     DatabaseCollection(user_collection): DatabaseCollection<User>,
-    ValidatedJson(req): ValidatedJson<UserRequest>
+    ValidatedJson(req): ValidatedJson<UserRequest>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let hashed_password = spawn_blocking_with_tracing(move ||
-        compute_password_hash(req.password)
-    ).await.map_err(|e| ServerError::InternalError(e.into()))??;
+    let hashed_password = spawn_blocking_with_tracing(move || compute_password_hash(req.password))
+        .await
+        .map_err(|e| ServerError::InternalError(e.into()))??;
     let result = user_collection
         .insert_one(
             User {
                 email: req.email.clone(),
                 password: hashed_password,
+                api_keys: vec![],
             },
-            None
-        ).await
-        .map_err(|err| { ServerError::BadRequest("E-mail already exists".to_string()) })?;
+            None,
+        )
+        .await
+        .map_err(|err| ServerError::BadRequest("E-mail already exists".to_string()))?;
     let inserted_id = result.inserted_id.as_object_id().unwrap().to_hex();
-   
+    let session_length: Duration = Duration::days(7);
+    let claim = Claim {
+        sub: inserted_id.clone(),
+        iat: time::OffsetDateTime::now_utc().unix_timestamp(),
+        exp: (time::OffsetDateTime::now_utc() + session_length).unix_timestamp(),
+    };
+    let token = encode(
+        &Header::default(),
+        &claim,
+        &EncodingKey::from_secret(ctx.config.jwt_secret.as_ref()),
+    )
+    .unwrap();
+
+    let bson_id = ObjectId::parse_str(&inserted_id).unwrap();
+
+    user_collection
+        .update_one(
+            doc! { "_id": bson_id },
+            doc! { "$push": {"api_keys": &token} },
+            None,
+        )
+        .await?;
+
     Ok(Json(serde_json::json!( {
         "id": inserted_id,
         "email": req.email,
+        "apiKey": token,
     })))
 }
 
@@ -90,10 +121,10 @@ fn compute_password_hash(password: String) -> Result<String, anyhow::Error> {
     let password_hash = Argon2::new(
         Algorithm::Argon2id,
         Version::V0x13,
-        Params::new(15000, 2, 1, None).unwrap()
+        Params::new(15000, 2, 1, None).unwrap(),
     )
-        .hash_password(password.as_bytes(), &salt)?
-        .to_string();
+    .hash_password(password.as_bytes(), &salt)?
+    .to_string();
     Ok(password_hash)
 }
 

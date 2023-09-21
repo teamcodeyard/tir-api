@@ -12,4 +12,7 @@ pub struct Config {
 
     #[arg(long, env)]
     pub openai_sk: String,
+
+    #[arg(long, env)]
+    pub jwt_secret: String,
 }
