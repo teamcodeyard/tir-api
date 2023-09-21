@@ -1,9 +1,17 @@
 use std::borrow::Cow;
 
 use argon2::{password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version};
-use axum::routing::post;
-use axum::{extract::State, Json, Router};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use axum::extract::Path;
+use axum::http::request::Parts;
+use axum::routing::{post, get};
+use axum::{
+    async_trait,
+    extract::State,
+    extract::{FromRef, FromRequestParts},
+    http::{HeaderName, HeaderValue},
+    Json, Router,
+};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use mongodb::bson::doc;
 use mongodb::bson::oid::ObjectId;
 use mongodb::options::IndexOptions;
@@ -13,6 +21,7 @@ use time;
 use time::Duration;
 use validator::{Validate, ValidationError};
 
+use crate::config::Config;
 use crate::http::extractors::{DBCollectable, DatabaseCollection};
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
@@ -24,7 +33,9 @@ const SPECIAL_CHARS: &str = "!@#$%^&*()-=_+{}[]:;<>,.?";
 pub(crate) fn router() -> Router<ApiContext> {
     // By having each module responsible for setting up its own routing,
     // it makes the root module a lot cleaner.
-    Router::new().route("/api/users", post(create_user))
+    Router::new()
+        .route("/api/users", post(create_user))
+        .route("/api/users/:id", get(get_user))
 }
 
 pub(crate) async fn create_indexes(db: &Database) {
@@ -116,6 +127,19 @@ async fn create_user(
     })))
 }
 
+async fn get_user(
+    State(ctx): State<ApiContext>,
+    DatabaseCollection(user_collection): DatabaseCollection<User>,
+    authorized_user: User,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ServerError> {
+    /* TODO check: if authorized_user.id.to_hex() != id {}*/
+    Ok(Json(serde_json::json!({
+        "email": authorized_user.email,
+        "id": id // TODO
+    })))
+}
+
 fn compute_password_hash(password: String) -> Result<String, anyhow::Error> {
     let salt = SaltString::generate(&mut rand::thread_rng());
     let password_hash = Argon2::new(
@@ -143,4 +167,52 @@ fn validate_password(password: &str) -> Result<(), ValidationError> {
         )
     );
     Err(err)
+}
+
+const X_ACCESS_TOKEN: HeaderName = HeaderName::from_static("x-access-token");
+
+#[async_trait]
+impl<S> FromRequestParts<S> for User
+where
+    S: Send + Sync,
+    ApiContext: FromRef<S>,
+{
+    type Rejection = ServerError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        if let Some(access_token) = parts.headers.get(X_ACCESS_TOKEN) {
+            let app_state = ApiContext::from_ref(state);
+            let id = User::from_authorization(&app_state.config, access_token)?;
+            let DatabaseCollection(mut user_collection) =
+                DatabaseCollection::<User>::from_request_parts(parts, state).await?;
+            let user_result = user_collection.find_one(doc! {"_id": id}, None).await?;
+            Ok(user_result.unwrap())
+        } else {
+            Err(ServerError::Unauthorized(String::from("unauthorized")))
+        }
+    }
+}
+
+impl User {
+    fn from_authorization(
+        ctx: &Config,
+        auth_header: &HeaderValue,
+    ) -> Result<ObjectId, ServerError> {
+        let token = auth_header.to_str().map_err(|_| {
+            tracing::debug!("Authorization header is not UTF-8");
+            ServerError::Unauthorized(String::from("Missing x-access-token header variable"))
+        })?;
+
+        let decoding = DecodingKey::from_secret(ctx.jwt_secret.as_bytes());
+        let validation = Validation::new(jsonwebtoken::Algorithm::HS256);
+        let TokenData { claims, .. } = jsonwebtoken::decode::<Claim>(token, &decoding, &validation)
+            .map_err(|_| ServerError::Unauthorized(String::from("Invalid token")))?;
+
+        if claims.exp < time::OffsetDateTime::now_utc().unix_timestamp() {
+            tracing::debug!("token expired");
+            return Err(ServerError::Unauthorized(String::from("Token expired")));
+        }
+
+        Ok(ObjectId::parse_str(&claims.sub).unwrap())
+    }
 }

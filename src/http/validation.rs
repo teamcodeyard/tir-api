@@ -44,6 +44,9 @@ pub enum ServerError {
 
     #[error("mongodb error occurred")]
     BadRequest(String),
+
+    #[error("access denied")]
+    Unauthorized(String),
 }
 
 impl IntoResponse for ServerError {
@@ -77,6 +80,13 @@ impl IntoResponse for ServerError {
                     tracing::error!("Bad request error: {err_message}");
                     (StatusCode::BAD_REQUEST, Json(serde_json::json!({
                         "code": 400, "type": "BAD_REQUEST", "message": err_message
+                    })))
+                },
+                ServerError::Unauthorized(err_message)  => {
+                    // Just log the error, but don't send in the response.
+                    tracing::error!("Unauthorized request error: {err_message}");
+                    (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                        "code": 401, "type": "UNAUTHORIZED", "message": err_message
                     })))
                 },
                 ServerError::InternalError(err) => {
