@@ -1,41 +1,40 @@
 use std::borrow::Cow;
 
-use argon2::{password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version};
+use argon2::{ password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version };
 use axum::extract::Path;
 use axum::http::request::Parts;
-use axum::routing::{post, get};
+use axum::routing::{ post, get };
 use axum::{
     async_trait,
     extract::State,
-    extract::{FromRef, FromRequestParts},
-    http::{HeaderName, HeaderValue},
-    Json, Router,
+    extract::{ FromRef, FromRequestParts },
+    http::{ HeaderName, HeaderValue },
+    Json,
+    Router,
 };
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
+use jsonwebtoken::{ decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation };
 use mongodb::bson::doc;
 use mongodb::bson::oid::ObjectId;
 use mongodb::options::IndexOptions;
-use mongodb::{Database, IndexModel};
-use serde::{Deserialize, Serialize};
+use mongodb::{ Database, IndexModel };
+use serde::{ Deserialize, Serialize };
 use time;
 use time::Duration;
-use validator::{Validate, ValidationError};
+use validator::{ Validate, ValidationError };
 
 use crate::config::Config;
-use crate::http::extractors::{DBCollectable, DatabaseCollection};
+use crate::http::extractors::{ DBCollectable, DatabaseCollection };
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
 
-use super::validation::{ServerError, ValidatedJson};
+use super::validation::{ ServerError, ValidatedJson };
 
 const SPECIAL_CHARS: &str = "!@#$%^&*()-=_+{}[]:;<>,.?";
 
 pub(crate) fn router() -> Router<ApiContext> {
     // By having each module responsible for setting up its own routing,
     // it makes the root module a lot cleaner.
-    Router::new()
-        .route("/api/users", post(create_user))
-        .route("/api/users/:id", get(get_user))
+    Router::new().route("/api/users", post(create_user)).route("/api/users/me", get(get_user))
 }
 
 pub(crate) async fn create_indexes(db: &Database) {
@@ -45,8 +44,7 @@ pub(crate) async fn create_indexes(db: &Database) {
         .options(options)
         .build();
     db.collection::<User>(User::get_collection_name())
-        .create_index(model, None)
-        .await
+        .create_index(model, None).await
         .expect("error creating index!");
 }
 
@@ -60,6 +58,7 @@ struct UserRequest {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct User {
+    _id: Option<ObjectId>,
     email: String,
     password: String,
     api_keys: Vec<String>,
@@ -80,21 +79,21 @@ impl DBCollectable for User {
 async fn create_user(
     State(ctx): State<ApiContext>,
     DatabaseCollection(user_collection): DatabaseCollection<User>,
-    ValidatedJson(req): ValidatedJson<UserRequest>,
+    ValidatedJson(req): ValidatedJson<UserRequest>
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let hashed_password = spawn_blocking_with_tracing(move || compute_password_hash(req.password))
-        .await
-        .map_err(|e| ServerError::InternalError(e.into()))??;
+    let hashed_password = spawn_blocking_with_tracing(move ||
+        compute_password_hash(req.password)
+    ).await.map_err(|e| ServerError::InternalError(e.into()))??;
     let result = user_collection
         .insert_one(
             User {
+                _id: Option::None,
                 email: req.email.clone(),
                 password: hashed_password,
                 api_keys: vec![],
             },
-            None,
-        )
-        .await
+            None
+        ).await
         .map_err(|err| ServerError::BadRequest("E-mail already exists".to_string()))?;
     let inserted_id = result.inserted_id.as_object_id().unwrap().to_hex();
     let session_length: Duration = Duration::days(7);
@@ -106,37 +105,37 @@ async fn create_user(
     let token = encode(
         &Header::default(),
         &claim,
-        &EncodingKey::from_secret(ctx.config.jwt_secret.as_ref()),
-    )
-    .unwrap();
+        &EncodingKey::from_secret(ctx.config.jwt_secret.as_ref())
+    ).unwrap();
 
     let bson_id = ObjectId::parse_str(&inserted_id).unwrap();
 
-    user_collection
-        .update_one(
-            doc! { "_id": bson_id },
-            doc! { "$push": {"api_keys": &token} },
-            None,
-        )
-        .await?;
+    user_collection.update_one(
+        doc! { "_id": bson_id },
+        doc! { "$push": {"api_keys": &token} },
+        None
+    ).await?;
 
-    Ok(Json(serde_json::json!( {
+    Ok(
+        Json(
+            serde_json::json!( {
         "id": inserted_id,
         "email": req.email,
         "apiKey": token,
-    })))
+    })
+        )
+    )
 }
 
 async fn get_user(
     State(ctx): State<ApiContext>,
     DatabaseCollection(user_collection): DatabaseCollection<User>,
-    authorized_user: User,
-    Path(id): Path<String>,
+    authorized_user: User
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    /* TODO check: if authorized_user.id.to_hex() != id {}*/
+    let id = authorized_user._id.unwrap().to_hex();
     Ok(Json(serde_json::json!({
         "email": authorized_user.email,
-        "id": id // TODO
+        "id": id 
     })))
 }
 
@@ -145,10 +144,10 @@ fn compute_password_hash(password: String) -> Result<String, anyhow::Error> {
     let password_hash = Argon2::new(
         Algorithm::Argon2id,
         Version::V0x13,
-        Params::new(15000, 2, 1, None).unwrap(),
+        Params::new(15000, 2, 1, None).unwrap()
     )
-    .hash_password(password.as_bytes(), &salt)?
-    .to_string();
+        .hash_password(password.as_bytes(), &salt)?
+        .to_string();
     Ok(password_hash)
 }
 
@@ -172,11 +171,7 @@ fn validate_password(password: &str) -> Result<(), ValidationError> {
 const X_ACCESS_TOKEN: HeaderName = HeaderName::from_static("x-access-token");
 
 #[async_trait]
-impl<S> FromRequestParts<S> for User
-where
-    S: Send + Sync,
-    ApiContext: FromRef<S>,
-{
+impl<S> FromRequestParts<S> for User where S: Send + Sync, ApiContext: FromRef<S> {
     type Rejection = ServerError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
@@ -185,7 +180,7 @@ where
             let id = User::from_authorization(&app_state.config, access_token)?;
             let DatabaseCollection(mut user_collection) =
                 DatabaseCollection::<User>::from_request_parts(parts, state).await?;
-            let user_result = user_collection.find_one(doc! {"_id": id}, None).await?;
+            let user_result = user_collection.find_one(doc! { "_id": id }, None).await?;
             Ok(user_result.unwrap())
         } else {
             Err(ServerError::Unauthorized(String::from("unauthorized")))
@@ -196,7 +191,7 @@ where
 impl User {
     fn from_authorization(
         ctx: &Config,
-        auth_header: &HeaderValue,
+        auth_header: &HeaderValue
     ) -> Result<ObjectId, ServerError> {
         let token = auth_header.to_str().map_err(|_| {
             tracing::debug!("Authorization header is not UTF-8");
@@ -205,7 +200,8 @@ impl User {
 
         let decoding = DecodingKey::from_secret(ctx.jwt_secret.as_bytes());
         let validation = Validation::new(jsonwebtoken::Algorithm::HS256);
-        let TokenData { claims, .. } = jsonwebtoken::decode::<Claim>(token, &decoding, &validation)
+        let TokenData { claims, .. } = jsonwebtoken
+            ::decode::<Claim>(token, &decoding, &validation)
             .map_err(|_| ServerError::Unauthorized(String::from("Invalid token")))?;
 
         if claims.exp < time::OffsetDateTime::now_utc().unix_timestamp() {
