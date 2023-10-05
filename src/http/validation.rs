@@ -9,7 +9,7 @@ use thiserror::Error;
 use validator::Validate;
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct ValidatedJson<T>(pub T);
+pub struct ValidatedJson<T>(pub T);
 
 #[async_trait]
 impl<T, S, B> FromRequest<S, B> for ValidatedJson<T>

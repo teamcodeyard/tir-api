@@ -9,11 +9,11 @@ use std::{
 use tower_http::trace::TraceLayer;
 
 mod extractors;
-mod users;
+pub mod users;
 mod validation;
 
 #[derive(Clone)]
-pub(crate) struct ApiContext {
+pub struct ApiContext {
     #[allow(unused)]
     config: Arc<Config>,
     db: Database,
