@@ -47,6 +47,9 @@ pub enum ServerError {
 
     #[error("access denied")]
     Unauthorized(String),
+    
+    #[error("Unprocessable entity")]
+    UnprocessableEntity(String)
 }
 
 impl IntoResponse for ServerError {
@@ -94,6 +97,13 @@ impl IntoResponse for ServerError {
                     tracing::error!("internal error: {err}");
                     (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
                         "code": 500, "type": "INTERNAL_SERVER_ERROR", "message": "an internal server error occurred"
+                    })))
+                },
+                ServerError::UnprocessableEntity(error_message) => {
+                    // Just log the error, but don't send in the response.
+                    tracing::error!("unprocessable entity: {error_message}");
+                    (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({
+                        "code": 422, "type": "UNPROCESSABLE_ENTITY", "message": error_message
                     })))
                 },
                 

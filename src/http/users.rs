@@ -1,7 +1,15 @@
 use std::borrow::Cow;
 
-use argon2::{ password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version };
-use axum::extract::Path;
+use argon2::{
+    password_hash::SaltString,
+    Algorithm,
+    Argon2,
+    Params,
+    PasswordHasher,
+    Version,
+    PasswordHash,
+    PasswordVerifier,
+};
 use axum::http::request::Parts;
 use axum::routing::{ post, get };
 use axum::{
@@ -13,10 +21,7 @@ use axum::{
     Router,
 };
 use jsonwebtoken::{ decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation };
-use mongodb::bson::doc;
-use mongodb::bson::oid::ObjectId;
-use mongodb::options::IndexOptions;
-use mongodb::{ Database, IndexModel };
+use mongodb::{ Database, IndexModel, bson::{ doc, oid::ObjectId }, options::IndexOptions };
 use serde::{ Deserialize, Serialize };
 use time;
 use time::Duration;
@@ -26,7 +31,7 @@ use crate::config::Config;
 use crate::http::extractors::{ DBCollectable, DatabaseCollection };
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
-
+use anyhow::{Result, Context};
 use super::validation::{ ServerError, ValidatedJson };
 
 const SPECIAL_CHARS: &str = "!@#$%^&*()-=_+{}[]:;<>,.?";
@@ -34,7 +39,10 @@ const SPECIAL_CHARS: &str = "!@#$%^&*()-=_+{}[]:;<>,.?";
 pub(crate) fn router() -> Router<ApiContext> {
     // By having each module responsible for setting up its own routing,
     // it makes the root module a lot cleaner.
-    Router::new().route("/api/users", post(create_user)).route("/api/users/me", get(get_user))
+    Router::new()
+        .route("/api/users", post(create_user))
+        .route("/api/users/me", get(get_user))
+        .route("/api/users/login", post(login_user))
 }
 
 pub(crate) async fn create_indexes(db: &Database) {
@@ -136,6 +144,31 @@ async fn get_user(
     Ok(Json(serde_json::json!({
         "email": authorized_user.email,
         "id": id 
+    })))
+}
+
+async fn login_user(
+    State(ctx): State<ApiContext>,
+    DatabaseCollection(user_collection): DatabaseCollection<User>,
+    ValidatedJson(req): ValidatedJson<UserRequest>
+) -> Result<Json<serde_json::Value>, ServerError> {
+    let user = user_collection
+        .find_one(doc! { "email": req.email }, Option::None).await?
+        .ok_or_else({
+            || ServerError::UnprocessableEntity(String::from("Invalid e-mail or password"))
+        })?;
+
+    crate::utils
+        ::spawn_blocking_with_tracing(move || {
+            let expected_password_hash = PasswordHash::new(&user.password)?;
+            Argon2::default().verify_password(req.password.as_bytes(), &expected_password_hash)
+        }).await
+        .context("unexpected error happened during password hashing")?
+        .map_err(|_| ServerError::UnprocessableEntity(String::from("Invalid e-mail or password")))?;
+
+    Ok(Json(serde_json::json!({
+        "email": user.email,
+        "id": user._id.unwrap().to_hex() 
     })))
 }
 
