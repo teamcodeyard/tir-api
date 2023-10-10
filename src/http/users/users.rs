@@ -2,7 +2,7 @@ use crate::http::users::structs::{ User, UserRequest, Claim };
 use crate::http::extractors::{ DBCollectable, DatabaseCollection };
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
-use super::ValidatedJson;
+use super::{ValidatedJson, validate_password_match};
 use super::ServerError;
 use super::utils::compute_password_hash;
 use axum::routing::{ post, get };
@@ -11,10 +11,8 @@ use time;
 use time::Duration;
 use anyhow::Result;
 use mongodb::{ Database, IndexModel, bson::{ doc, oid::ObjectId }, options::IndexOptions };
-use argon2::{ Argon2, PasswordHash, PasswordVerifier };
 use jsonwebtoken::encode;
 use jsonwebtoken::{ EncodingKey, Header };
-use anyhow::Context;
 
 pub fn router() -> Router<ApiContext> {
     // By having each module responsible for setting up its own routing,
@@ -59,26 +57,13 @@ async fn create_user(
             ServerError::BadRequest("E-mail already exists".to_string())
         })?;
     let inserted_id = result.inserted_id.as_object_id().unwrap().to_hex();
-    let session_length: Duration = Duration::days(7);
-    let claim = Claim {
-        sub: inserted_id.clone(),
-        iat: time::OffsetDateTime::now_utc().unix_timestamp(),
-        exp: (time::OffsetDateTime::now_utc() + session_length).unix_timestamp(),
-    };
-    let token = encode(
-        &Header::default(),
-        &claim,
-        &EncodingKey::from_secret(ctx.config.jwt_secret.as_ref())
-    ).unwrap();
-
+    let token = generate_new_api_key(&inserted_id, ctx).await?;
     let bson_id = ObjectId::parse_str(&inserted_id).unwrap();
-
     user_collection.update_one(
         doc! { "_id": bson_id },
         doc! { "$push": {"api_keys": &token} },
         None
     ).await?;
-
     Ok(
         Json(
             serde_json::json!( {
@@ -90,6 +75,24 @@ async fn create_user(
     )
 }
 
+async fn generate_new_api_key(
+    inserted_id: &String,
+    ctx: ApiContext
+) -> Result<String, ServerError> {
+    let session_length: Duration = Duration::days(7);
+    let claim = Claim {
+        sub: inserted_id.clone(),
+        iat: time::OffsetDateTime::now_utc().unix_timestamp(),
+        exp: (time::OffsetDateTime::now_utc() + session_length).unix_timestamp(),
+    };
+    let token = encode(
+        &Header::default(),
+        &claim,
+        &EncodingKey::from_secret(ctx.config.jwt_secret.as_ref())
+    ).unwrap();
+    Ok(token)
+}
+
 async fn get_user(authorized_user: User) -> Result<Json<serde_json::Value>, ServerError> {
     let id = authorized_user._id.unwrap().to_hex();
     Ok(Json(serde_json::json!({
@@ -99,6 +102,7 @@ async fn get_user(authorized_user: User) -> Result<Json<serde_json::Value>, Serv
 }
 
 async fn login_user(
+    State(ctx): State<ApiContext>,
     DatabaseCollection(user_collection): DatabaseCollection<User>,
     ValidatedJson(req): ValidatedJson<UserRequest>
 ) -> Result<Json<serde_json::Value>, ServerError> {
@@ -108,19 +112,22 @@ async fn login_user(
             || ServerError::UnprocessableEntity(String::from("Invalid e-mail or password"))
         })?;
 
-    crate::utils
-        ::spawn_blocking_with_tracing(move || {
-            let expected_password_hash = PasswordHash::new(&user.password)?;
-            Argon2::default().verify_password(req.password.as_bytes(), &expected_password_hash)
-        }).await
-        .context("unexpected error happened during password hashing")?
-        .map_err(|_| ServerError::UnprocessableEntity(String::from("Invalid e-mail or password")))?;
+    validate_password_match(user.password, req.password).await?;
+    
+    let user_id = user._id.unwrap();
+    let token = generate_new_api_key(&user_id.to_hex().to_string(), ctx).await?;
+    user_collection.update_one(
+        doc! { "_id": user_id },
+        doc! { "$push": {"api_keys": &token} },
+        None
+    ).await?;
 
     Ok(
         Json(
             serde_json::json!({
         "email": user.email,
-        "id": user._id.unwrap().to_hex() 
+        "id": user._id.unwrap().to_hex(),
+        "apiKey": token,
     })
         )
     )

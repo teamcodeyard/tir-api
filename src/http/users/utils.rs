@@ -3,12 +3,14 @@ use super::DatabaseCollection;
 use super::doc;
 use super::ServerError;
 use super::ApiContext;
-use argon2::{ password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version };
+use super::structs::UserRequest;
+use argon2::{ password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version, PasswordHash, PasswordVerifier  };
 use axum::{ async_trait, http::HeaderName, extract::{ FromRef, FromRequestParts } };
 use regex::Regex;
 use validator::ValidationError;
 use std::borrow::Cow;
 use axum::http::request::Parts;
+use anyhow::Context;
 
 const SPECIAL_CHARS: &str = "!@#$%^&*()-=_+{}[]:;<>,.?";
 
@@ -39,6 +41,17 @@ pub fn validate_password(password: &str) -> Result<(), ValidationError> {
         )
     );
     Err(err)
+}
+
+pub async fn validate_password_match(password: String, req_password: String) -> Result<(), ServerError> {
+    crate::utils
+        ::spawn_blocking_with_tracing(move || {
+            let expected_password_hash = PasswordHash::new(&password)?;
+            Argon2::default().verify_password(req_password.as_bytes(), &expected_password_hash)
+        }).await
+        .context("unexpected error happened during password hashing")?
+        .map_err(|_| ServerError::UnprocessableEntity(String::from("Invalid e-mail or password")))?;
+    Ok(())
 }
 
 pub fn validate_email(email: &str) -> Result<(), ValidationError> {
