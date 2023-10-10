@@ -27,3 +27,4 @@ argon2 = { version = "0.5", features = ["std"] }
 rand = "0.8.5"
 jsonwebtoken = "8.3.0"
 time = "0.3.0"
+regex = "1.10.0"

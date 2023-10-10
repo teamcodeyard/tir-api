@@ -5,6 +5,7 @@ use super::ServerError;
 use super::ApiContext;
 use argon2::{ password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version };
 use axum::{ async_trait, http::HeaderName, extract::{ FromRef, FromRequestParts } };
+use regex::Regex;
 use validator::ValidationError;
 use std::borrow::Cow;
 use axum::http::request::Parts;
@@ -35,6 +36,21 @@ pub fn validate_password(password: &str) -> Result<(), ValidationError> {
     err.message = Some(
         Cow::from(
             "The password must be at least 10 characters, must contain numeric characters, minimum 1 uppercase letter [A-Z] and minimum 1 special character"
+        )
+    );
+    Err(err)
+}
+
+pub fn validate_email(email: &str) -> Result<(), ValidationError> {
+    let regex = Regex::new(r"^([a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$").unwrap();
+    let is_valid = regex.is_match(email);
+    if is_valid {
+        return Ok(());
+    }
+    let mut err = ValidationError::new("UNPROCESSABLE_ENTITY");
+    err.message = Some(
+        Cow::from(
+            "Invalid e-mail address"
         )
     );
     Err(err)

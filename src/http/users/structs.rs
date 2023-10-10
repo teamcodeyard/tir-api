@@ -1,5 +1,5 @@
 use super::ServerError;
-use super::validate_password;
+use super::{ validate_password, validate_email };
 use super::DBCollectable;
 use super::Config;
 use serde::{ Deserialize, Serialize };
@@ -10,7 +10,7 @@ use jsonwebtoken::{ DecodingKey, TokenData, Validation };
 
 #[derive(serde::Deserialize, Validate)]
 pub(crate) struct UserRequest {
-    #[validate(email)]
+    #[validate(custom = "validate_email")]
     pub(crate) email: String,
     #[validate(custom = "validate_password")]
     pub(crate) password: String,
@@ -35,7 +35,6 @@ impl DBCollectable for User {
         "users"
     }
 }
-
 
 impl User {
     pub(crate) fn from_authorization(
