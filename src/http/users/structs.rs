@@ -32,6 +32,15 @@ pub(crate) enum UserRole {
     SUPERVISOR
 }
 
+#[derive(serde::Deserialize, Validate)]
+pub(crate) struct UpdateUserRequest {
+    #[validate(custom = "validate_email")]
+    pub(crate) email: String,
+    pub(crate) bio: String,
+    pub(crate) full_name: String,
+    
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Claim {
     pub(crate) sub: String,

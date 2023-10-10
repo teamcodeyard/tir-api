@@ -1,11 +1,11 @@
-use crate::http::users::structs::{ User, UserRequest, UserRole };
+use crate::http::users::structs::{ User, UserRequest, UserRole, UpdateUserRequest };
 use crate::http::extractors::{ DBCollectable, DatabaseCollection };
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
 use super::{ ValidatedJson, validate_password_match, generate_new_api_key };
 use super::ServerError;
 use super::utils::compute_password_hash;
-use axum::routing::{ post, get };
+use axum::routing::{ post, get, put };
 use axum::{ extract::State, Json, Router };
 use anyhow::Result;
 use mongodb::{ Database, IndexModel, bson::{ doc, oid::ObjectId }, options::IndexOptions };
@@ -17,6 +17,7 @@ pub fn router() -> Router<ApiContext> {
         .route("/api/users", post(create_user))
         .route("/api/users/me", get(get_user))
         .route("/api/users/login", post(login_user))
+        .route("/api/users/:id", put(update_user))
 }
 
 pub async fn create_indexes(db: &Database) {
@@ -114,6 +115,30 @@ async fn login_user(
         "id": user._id.unwrap().to_hex(),
         "apiKey": token,
         "role": user.role
+    })
+        )
+    )
+}
+
+async fn update_user(
+    authorized_user: User,
+    DatabaseCollection(user_collection): DatabaseCollection<User>,
+    ValidatedJson(req): ValidatedJson<UpdateUserRequest>,
+) -> Result<Json<serde_json::Value>, ServerError> {
+    // TODO: continue
+    user_collection.update_one(
+        doc! {"_id": authorized_user._id},
+        doc! { "$set": {"bio": &req.bio, "full_name": &req.full_name, "email": &req.email} },
+        Option::None
+    ).await?;
+    Ok(
+        Json(
+            serde_json::json!( {
+        "id": authorized_user._id.unwrap().to_hex().to_string(),
+        "email": req.email,
+        "role": UserRole::MEMBER,
+        "bio": req.bio,
+        "full_name": req.full_name
     })
         )
     )
