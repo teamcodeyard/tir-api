@@ -32,7 +32,7 @@ pub fn validate_password(password: &str) -> Result<(), ValidationError> {
     if has_digit && has_uppercase && has_special && password.len() > 9 {
         return Ok(());
     }
-    let mut err = ValidationError::new("UNPROCESSABLE_ENTITY");
+    let mut err = ValidationError::new("BAD_REQUEST");
     err.message = Some(
         Cow::from(
             "The password must be at least 10 characters, must contain numeric characters, minimum 1 uppercase letter [A-Z] and minimum 1 special character"
@@ -47,7 +47,7 @@ pub fn validate_email(email: &str) -> Result<(), ValidationError> {
     if is_valid {
         return Ok(());
     }
-    let mut err = ValidationError::new("UNPROCESSABLE_ENTITY");
+    let mut err = ValidationError::new("BAD_REQUEST");
     err.message = Some(
         Cow::from(
             "Invalid e-mail address"
