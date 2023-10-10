@@ -1,18 +1,14 @@
-use crate::http::users::structs::{ User, UserRequest, Claim };
+use crate::http::users::structs::{ User, UserRequest, UserRole };
 use crate::http::extractors::{ DBCollectable, DatabaseCollection };
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
-use super::{ValidatedJson, validate_password_match};
+use super::{ ValidatedJson, validate_password_match, generate_new_api_key };
 use super::ServerError;
 use super::utils::compute_password_hash;
 use axum::routing::{ post, get };
 use axum::{ extract::State, Json, Router };
-use time;
-use time::Duration;
 use anyhow::Result;
 use mongodb::{ Database, IndexModel, bson::{ doc, oid::ObjectId }, options::IndexOptions };
-use jsonwebtoken::encode;
-use jsonwebtoken::{ EncodingKey, Header };
 
 pub fn router() -> Router<ApiContext> {
     // By having each module responsible for setting up its own routing,
@@ -49,6 +45,7 @@ async fn create_user(
                 email: req.email.clone(),
                 password: hashed_password,
                 api_keys: vec![],
+                role: UserRole::MEMBER,
             },
             None
         ).await
@@ -70,35 +67,23 @@ async fn create_user(
         "id": inserted_id,
         "email": req.email,
         "apiKey": token,
+        "role": UserRole::MEMBER
     })
         )
     )
 }
 
-async fn generate_new_api_key(
-    inserted_id: &String,
-    ctx: ApiContext
-) -> Result<String, ServerError> {
-    let session_length: Duration = Duration::days(7);
-    let claim = Claim {
-        sub: inserted_id.clone(),
-        iat: time::OffsetDateTime::now_utc().unix_timestamp(),
-        exp: (time::OffsetDateTime::now_utc() + session_length).unix_timestamp(),
-    };
-    let token = encode(
-        &Header::default(),
-        &claim,
-        &EncodingKey::from_secret(ctx.config.jwt_secret.as_ref())
-    ).unwrap();
-    Ok(token)
-}
-
 async fn get_user(authorized_user: User) -> Result<Json<serde_json::Value>, ServerError> {
     let id = authorized_user._id.unwrap().to_hex();
-    Ok(Json(serde_json::json!({
+    Ok(
+        Json(
+            serde_json::json!({
         "email": authorized_user.email,
-        "id": id 
-    })))
+        "id": id,
+        "role": authorized_user.role
+    })
+        )
+    )
 }
 
 async fn login_user(
@@ -113,7 +98,7 @@ async fn login_user(
         })?;
 
     validate_password_match(user.password, req.password).await?;
-    
+
     let user_id = user._id.unwrap();
     let token = generate_new_api_key(&user_id.to_hex().to_string(), ctx).await?;
     user_collection.update_one(
@@ -128,6 +113,7 @@ async fn login_user(
         "email": user.email,
         "id": user._id.unwrap().to_hex(),
         "apiKey": token,
+        "role": user.role
     })
         )
     )

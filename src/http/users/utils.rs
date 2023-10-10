@@ -1,10 +1,21 @@
-use super::structs::User;
+use super::structs::{ User, Claim };
 use super::DatabaseCollection;
 use super::doc;
 use super::ServerError;
 use super::ApiContext;
-use super::structs::UserRequest;
-use argon2::{ password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version, PasswordHash, PasswordVerifier  };
+use jsonwebtoken::{ EncodingKey, Header };
+use jsonwebtoken::encode;
+use time::Duration;
+use argon2::{
+    password_hash::SaltString,
+    Algorithm,
+    Argon2,
+    Params,
+    PasswordHasher,
+    Version,
+    PasswordHash,
+    PasswordVerifier,
+};
 use axum::{ async_trait, http::HeaderName, extract::{ FromRef, FromRequestParts } };
 use regex::Regex;
 use validator::ValidationError;
@@ -43,7 +54,10 @@ pub fn validate_password(password: &str) -> Result<(), ValidationError> {
     Err(err)
 }
 
-pub async fn validate_password_match(password: String, req_password: String) -> Result<(), ServerError> {
+pub async fn validate_password_match(
+    password: String,
+    req_password: String
+) -> Result<(), ServerError> {
     crate::utils
         ::spawn_blocking_with_tracing(move || {
             let expected_password_hash = PasswordHash::new(&password)?;
@@ -61,12 +75,26 @@ pub fn validate_email(email: &str) -> Result<(), ValidationError> {
         return Ok(());
     }
     let mut err = ValidationError::new("BAD_REQUEST");
-    err.message = Some(
-        Cow::from(
-            "Invalid e-mail address"
-        )
-    );
+    err.message = Some(Cow::from("Invalid e-mail address"));
     Err(err)
+}
+
+pub async fn generate_new_api_key(
+    inserted_id: &String,
+    ctx: ApiContext
+) -> Result<String, ServerError> {
+    let session_length: Duration = Duration::days(7);
+    let claim = Claim {
+        sub: inserted_id.clone(),
+        iat: time::OffsetDateTime::now_utc().unix_timestamp(),
+        exp: (time::OffsetDateTime::now_utc() + session_length).unix_timestamp(),
+    };
+    let token = encode(
+        &Header::default(),
+        &claim,
+        &EncodingKey::from_secret(ctx.config.jwt_secret.as_ref())
+    ).unwrap();
+    Ok(token)
 }
 
 const X_ACCESS_TOKEN: HeaderName = HeaderName::from_static("x-access-token");

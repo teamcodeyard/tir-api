@@ -8,6 +8,7 @@ use validator::Validate;
 use axum::http::HeaderValue;
 use jsonwebtoken::{ DecodingKey, TokenData, Validation };
 
+
 #[derive(serde::Deserialize, Validate)]
 pub(crate) struct UserRequest {
     #[validate(custom = "validate_email")]
@@ -22,7 +23,15 @@ pub(crate) struct User {
     pub(crate) email: String,
     pub(crate) password: String,
     pub(crate) api_keys: Vec<String>,
+    pub(crate) role: UserRole,
 }
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) enum UserRole {
+    MEMBER,
+    SUPERVISOR
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Claim {
     pub(crate) sub: String,
