@@ -2,6 +2,7 @@ use crate::http::users::structs::{ User, UserRequest, UserRole, UpdateUserReques
 use crate::http::extractors::{ DBCollectable, DatabaseCollection };
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
+use super::structs::UpdatePasswordRequest;
 use super::{ ValidatedJson, validate_password_match, generate_new_api_key };
 use super::ServerError;
 use super::utils::compute_password_hash;
@@ -18,6 +19,7 @@ pub fn router() -> Router<ApiContext> {
         .route("/api/users/me", get(get_user))
         .route("/api/users/login", post(login_user))
         .route("/api/users/:id", put(update_user))
+        .route("/api/users/:id/password", put(update_password))
 }
 
 pub async fn create_indexes(db: &Database) {
@@ -145,6 +147,34 @@ async fn update_user(
         "role": user.role,
         "bio": user.bio,
         "full_name": user.full_name
+    })
+        )
+    )
+}
+
+async fn update_password(
+    authorized_user: User,
+    DatabaseCollection(user_collection): DatabaseCollection<User>,
+    ValidatedJson(req): ValidatedJson<UpdatePasswordRequest>
+) -> Result<Json<serde_json::Value>, ServerError> {
+    let hashed_password = spawn_blocking_with_tracing(move ||
+        compute_password_hash(req.password)
+    ).await.map_err(|e| ServerError::InternalError(e.into()))??;
+
+    user_collection.update_one(
+        doc! { "_id": authorized_user._id },
+        doc! { "$set": { "password": hashed_password } },
+        Option::None
+    ).await?;
+
+    Ok(
+        Json(
+            serde_json::json!( {
+        "id": authorized_user._id.unwrap().to_hex().to_string(),
+        "email": authorized_user.email,
+        "role": authorized_user.role,
+        "bio": authorized_user.bio,
+        "full_name": authorized_user.full_name
     })
         )
     )

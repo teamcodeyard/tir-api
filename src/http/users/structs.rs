@@ -80,3 +80,10 @@ impl User {
         Ok(ObjectId::parse_str(&claims.sub).unwrap())
     }
 }
+
+
+#[derive(serde::Deserialize, Validate)]
+pub(crate) struct UpdatePasswordRequest {
+    #[validate(custom = "validate_password")]
+    pub(crate) password: String,
+}
