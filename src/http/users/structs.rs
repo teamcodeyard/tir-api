@@ -8,7 +8,6 @@ use validator::Validate;
 use axum::http::HeaderValue;
 use jsonwebtoken::{ DecodingKey, TokenData, Validation };
 
-
 #[derive(serde::Deserialize, Validate)]
 pub(crate) struct UserRequest {
     #[validate(custom = "validate_email")]
@@ -28,10 +27,19 @@ pub(crate) struct User {
     pub(crate) full_name: Option<String>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, PartialEq)]
 pub(crate) enum UserRole {
     MEMBER,
-    SUPERVISOR
+    SUPERVISOR,
+}
+
+impl std::fmt::Display for UserRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MEMBER => { write!(f, "MEMBER") }
+            Self::SUPERVISOR => { write!(f, "SUPERVISOR") }
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Validate)]
@@ -40,7 +48,6 @@ pub(crate) struct UpdateUserRequest {
     pub(crate) email: String,
     pub(crate) bio: String,
     pub(crate) full_name: String,
-    
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -81,9 +88,13 @@ impl User {
     }
 }
 
-
 #[derive(serde::Deserialize, Validate)]
 pub(crate) struct UpdatePasswordRequest {
     #[validate(custom = "validate_password")]
     pub(crate) password: String,
+}
+
+#[derive(serde::Deserialize, Validate, serde::Serialize)]
+pub(crate) struct UpdateRoleRequest {
+    pub(crate) role: UserRole,
 }

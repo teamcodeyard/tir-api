@@ -2,10 +2,12 @@ use crate::http::users::structs::{ User, UserRequest, UserRole, UpdateUserReques
 use crate::http::extractors::{ DBCollectable, DatabaseCollection };
 use crate::http::ApiContext;
 use crate::utils::spawn_blocking_with_tracing;
-use super::structs::UpdatePasswordRequest;
+use super::structs::{ UpdatePasswordRequest, UpdateRoleRequest };
 use super::{ ValidatedJson, validate_password_match, generate_new_api_key };
 use super::ServerError;
 use super::utils::compute_password_hash;
+use argon2::Params;
+use axum::extract::Path;
 use axum::routing::{ post, get, put };
 use axum::{ extract::State, Json, Router };
 use anyhow::Result;
@@ -20,6 +22,7 @@ pub fn router() -> Router<ApiContext> {
         .route("/api/users/login", post(login_user))
         .route("/api/users/:id", put(update_user))
         .route("/api/users/:id/password", put(update_password))
+        .route("/api/users/:id/role", put(change_role))
 }
 
 pub async fn create_indexes(db: &Database) {
@@ -175,6 +178,39 @@ async fn update_password(
         "role": authorized_user.role,
         "bio": authorized_user.bio,
         "full_name": authorized_user.full_name
+    })
+        )
+    )
+}
+
+async fn change_role(
+    authorized_user: User,
+    DatabaseCollection(user_collection): DatabaseCollection<User>,
+    Path(user_id_param): Path<String>,
+    ValidatedJson(req): ValidatedJson<UpdateRoleRequest>
+) -> Result<Json<serde_json::Value>, ServerError> {
+    if authorized_user.role != UserRole::SUPERVISOR {
+        return Err(ServerError::Forbidden(String::from("You don't have role to this action")));
+    }
+    let user_id = ObjectId::parse_str(&user_id_param).unwrap();
+    user_collection.update_one(
+        doc! { "_id": user_id },
+        doc! { "$set": { "role": &req.role.to_string() } },
+        Option::None
+    ).await?;
+
+    let user = user_collection.find_one(doc! { "_id": user_id }, Option::None).await?.ok_or_else({
+        || ServerError::UnprocessableEntity(String::from("Unknown user"))
+    })?;
+
+    Ok(
+        Json(
+            serde_json::json!( {
+        "id": user._id.unwrap().to_hex().to_string(),
+        "email": user.email,
+        "role": user.role,
+        "bio": user.bio,
+        "full_name": user.full_name
     })
         )
     )

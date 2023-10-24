@@ -45,6 +45,8 @@ pub enum ServerError {
     #[error("access denied")] Unauthorized(String),
 
     #[error("Unprocessable entity")] UnprocessableEntity(String),
+    
+    #[error("Forbidden")] Forbidden(String),
 }
 
 impl IntoResponse for ServerError {
@@ -138,6 +140,18 @@ impl IntoResponse for ServerError {
                         Json(
                             serde_json::json!({
                         "code": 422, "type": "UNPROCESSABLE_ENTITY", "message": error_message
+                    })
+                        ),
+                    )
+                }
+                ServerError::Forbidden(error_message) => {
+                    // Just log the error, but don't send in the response.
+                    tracing::error!("forbidden action: {error_message}");
+                    (
+                        StatusCode::FORBIDDEN,
+                        Json(
+                            serde_json::json!({
+                        "code": 403, "type": "FORBIDDEN", "message": error_message
                     })
                         ),
                     )
