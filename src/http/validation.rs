@@ -1,9 +1,10 @@
 use axum::async_trait;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::FromRequest;
-use axum::http::{Request, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::http::{ Request, StatusCode };
+use axum::response::{ IntoResponse, Response };
 use axum::Json;
+use mongodb::error::{ ErrorKind, WriteFailure };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 use validator::Validate;
@@ -12,12 +13,13 @@ use validator::Validate;
 pub struct ValidatedJson<T>(pub T);
 
 #[async_trait]
-impl<T, S, B> FromRequest<S, B> for ValidatedJson<T>
-where
-    T: DeserializeOwned + Validate,
-    S: Send + Sync,
-    Json<T>: FromRequest<S, B, Rejection = JsonRejection>,
-    B: Send + 'static,
+impl<T, S, B> FromRequest<S, B>
+    for ValidatedJson<T>
+    where
+        T: DeserializeOwned + Validate,
+        S: Send + Sync,
+        Json<T>: FromRequest<S, B, Rejection = JsonRejection>,
+        B: Send + 'static
 {
     type Rejection = ServerError;
 
@@ -30,26 +32,19 @@ where
 
 #[derive(Debug, Error)]
 pub enum ServerError {
-    #[error(transparent)]
-    ValidationError(#[from] validator::ValidationErrors),
+    #[error(transparent)] ValidationError(#[from] validator::ValidationErrors),
 
-    #[error(transparent)]
-    AxumJsonRejection(#[from] JsonRejection),
+    #[error(transparent)] AxumJsonRejection(#[from] JsonRejection),
 
-    #[error(transparent)]
-    MongoError(#[from] mongodb::error::Error),
+    #[error(transparent)] MongoError(#[from] mongodb::error::Error),
 
-    #[error("internal server error occurred")]
-    InternalError(#[from] anyhow::Error),
+    #[error("internal server error occurred")] InternalError(#[from] anyhow::Error),
 
-    #[error("mongodb error occurred")]
-    BadRequest(String),
+    #[error("mongodb error occurred")] BadRequest(String),
 
-    #[error("access denied")]
-    Unauthorized(String),
-    
-    #[error("Unprocessable entity")]
-    UnprocessableEntity(String)
+    #[error("access denied")] Unauthorized(String),
+
+    #[error("Unprocessable entity")] UnprocessableEntity(String),
 }
 
 impl IntoResponse for ServerError {
@@ -68,45 +63,85 @@ impl IntoResponse for ServerError {
                     (StatusCode::BAD_REQUEST, err_json)
                 }
                 ServerError::AxumJsonRejection(_) => {
-                    let err_json = Json(serde_json::json!({"code": 400, "type": "BAD_REQUEST", "message": "invalid JSON"}));
+                    let err_json = Json(
+                        serde_json::json!({"code": 400, "type": "BAD_REQUEST", "message": "invalid JSON"})
+                    );
                     (StatusCode::BAD_REQUEST, err_json)
                 }
                 ServerError::MongoError(err) => {
-                    // Just log the DB error, but don't send in the response.
                     tracing::error!("Mongo error: {err}");
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-                        "code": 500, "type": "INTERNAL_SERVER_ERROR", "message": "an internal server error occurred"
-                    })))
-                },
-                ServerError::BadRequest(err_message)  => {
+                    // Just log the DB error, but don't send in the response.
+                    if let ErrorKind::Write(failure) = err.kind.as_ref() {
+                        if let WriteFailure::WriteError(write_error) = failure {
+                            if write_error.code == 11000 {
+                                return (
+                                    StatusCode::BAD_REQUEST,
+                                    Json(
+                                        serde_json::json!({
+                                    "code": 400, "type": "BAD_REQUEST", "message": "E-mail already exists"
+                                })
+                                    ),
+                                ).into_response();
+                            }
+                        }
+                    }
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            serde_json::json!({
+                        "code": 500, "type": "INTERNAL_SERVER_ERROR", "message": "An internal server error occurred"
+                    })
+                        ),
+                    )
+                }
+                ServerError::BadRequest(err_message) => {
                     // Just log the error, but don't send in the response.
                     tracing::error!("Bad request error: {err_message}");
-                    (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            serde_json::json!({
                         "code": 400, "type": "BAD_REQUEST", "message": err_message
-                    })))
-                },
-                ServerError::Unauthorized(err_message)  => {
+                    })
+                        ),
+                    )
+                }
+                ServerError::Unauthorized(err_message) => {
                     // Just log the error, but don't send in the response.
                     tracing::error!("Unauthorized request error: {err_message}");
-                    (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            serde_json::json!({
                         "code": 401, "type": "UNAUTHORIZED", "message": err_message
-                    })))
-                },
+                    })
+                        ),
+                    )
+                }
                 ServerError::InternalError(err) => {
                     // Just log the error, but don't send in the response.
                     tracing::error!("internal error: {err}");
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            serde_json::json!({
                         "code": 500, "type": "INTERNAL_SERVER_ERROR", "message": "an internal server error occurred"
-                    })))
-                },
+                    })
+                        ),
+                    )
+                }
                 ServerError::UnprocessableEntity(error_message) => {
                     // Just log the error, but don't send in the response.
                     tracing::error!("unprocessable entity: {error_message}");
-                    (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({
+                    (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Json(
+                            serde_json::json!({
                         "code": 422, "type": "UNPROCESSABLE_ENTITY", "message": error_message
-                    })))
-                },
-                
+                    })
+                        ),
+                    )
+                }
             }
         ).into_response()
     }
