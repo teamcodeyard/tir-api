@@ -24,6 +24,8 @@ pub(crate) struct User {
     pub(crate) password: String,
     pub(crate) api_keys: Vec<String>,
     pub(crate) role: UserRole,
+    pub(crate) bio: Option<String>,
+    pub(crate) full_name: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

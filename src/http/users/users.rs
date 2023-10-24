@@ -47,6 +47,8 @@ async fn create_user(
                 password: hashed_password,
                 api_keys: vec![],
                 role: UserRole::MEMBER,
+                bio: Option::None,
+                full_name: Option::None,
             },
             None
         ).await
@@ -123,22 +125,26 @@ async fn login_user(
 async fn update_user(
     authorized_user: User,
     DatabaseCollection(user_collection): DatabaseCollection<User>,
-    ValidatedJson(req): ValidatedJson<UpdateUserRequest>,
+    ValidatedJson(req): ValidatedJson<UpdateUserRequest>
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    // TODO: continue
     user_collection.update_one(
-        doc! {"_id": authorized_user._id},
+        doc! { "_id": authorized_user._id },
         doc! { "$set": {"bio": &req.bio, "full_name": &req.full_name, "email": &req.email} },
         Option::None
     ).await?;
+
+    let user = user_collection
+        .find_one(doc! { "_id": authorized_user._id }, Option::None).await?
+        .unwrap();
+
     Ok(
         Json(
             serde_json::json!( {
-        "id": authorized_user._id.unwrap().to_hex().to_string(),
-        "email": req.email,
-        "role": UserRole::MEMBER,
-        "bio": req.bio,
-        "full_name": req.full_name
+        "id": user._id.unwrap().to_hex().to_string(),
+        "email": user.email,
+        "role": user.role,
+        "bio": user.bio,
+        "full_name": user.full_name
     })
         )
     )
