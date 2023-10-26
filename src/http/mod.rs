@@ -10,6 +10,7 @@ use tower_http::trace::TraceLayer;
 
 mod extractors;
 pub mod users;
+pub mod thematics;
 mod validation;
 
 #[derive(Clone)]
@@ -51,12 +52,14 @@ pub async fn serve(config: Config, db: Database) -> anyhow::Result<()> {
 
 async fn create_indexes(db: &Database) {
     users::create_indexes(db).await;
+    thematics::create_indexes(db).await;
 }
 
 fn api_router(api_context: ApiContext) -> Router {
     // This is the order that the modules were authored in.
     Router::new()
         .merge(users::router())
+        .merge(thematics::router())
         // Enables logging. Use `RUST_LOG=tower_http=debug`
         .layer(TraceLayer::new_for_http())
         .with_state(api_context)

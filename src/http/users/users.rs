@@ -6,7 +6,6 @@ use super::structs::{ UpdatePasswordRequest, UpdateRoleRequest };
 use super::{ ValidatedJson, validate_password_match, generate_new_api_key };
 use super::ServerError;
 use super::utils::compute_password_hash;
-use argon2::Params;
 use axum::extract::Path;
 use axum::routing::{ post, get, put };
 use axum::{ extract::State, Json, Router };
