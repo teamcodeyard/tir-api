@@ -1,0 +1,23 @@
+version: "3.0"
+
+services:
+
+  api:
+    build:
+      context: .
+    image: tir-api
+    env_file: docker-compose.env
+    environment:
+      PORT: 3000
+    
+  mongo:
+    image: mongo:4
+    volumes:
+      - data:/data/db
+    expose:
+      - "27017"
+    ports:
+      - "27017:27017"
+
+volumes:
+  data:
