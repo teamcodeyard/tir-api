@@ -1,5 +1,6 @@
 use super::{DBCollectable, ObjectId};
-use tirengine::{ Topic };
+use serde::{de, Deserializer};
+use tirengine::Topic;
 
 impl DBCollectable for Thematic {
     fn get_collection_name() -> &'static str {
@@ -7,10 +8,18 @@ impl DBCollectable for Thematic {
     }
 }
 
-
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct Thematic {
-    pub _id: ObjectId,
+    #[serde(deserialize_with = "inline_object_id")]
+    pub _id: String,
     pub title: String,
     pub topics: Vec<Topic>,
+}
+
+fn inline_object_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let id: ObjectId = de::Deserialize::deserialize(deserializer)?;
+    Ok(id.to_hex())
 }
