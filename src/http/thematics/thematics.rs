@@ -3,9 +3,9 @@ use super::ServerError;
 use axum::routing::get;
 use axum::{ Json, Router };
 use anyhow::Result;
-use mongodb::{ Database };
+use mongodb::Database;
 use crate::http::extractors::DatabaseCollection;
-use futures::stream::StreamExt;
+use futures::stream::TryStreamExt;
 use super::structs::Thematic;
 
 pub fn router() -> Router<ApiContext> {
@@ -14,20 +14,10 @@ pub fn router() -> Router<ApiContext> {
 
 pub async fn create_indexes(_db: &Database) {}
 
-async fn list_thematics(DatabaseCollection(
-    thematic_collection,
-): DatabaseCollection<Thematic>) -> Result<Json<serde_json::Value>, ServerError> {
-    let mut cursor = thematic_collection.find(None, None).await?;
-    let mut result = vec! {};
-    while let Some(doc) = cursor.next().await {
-        let thematic = doc.unwrap();
-        result.push(
-            serde_json::json!({
-            "id": thematic._id.to_hex(),
-            "title": thematic.title,
-            "topic": thematic.topics
-        })
-        );
-    }
-    Ok(Json(serde_json::Value::Array(result)))
+async fn list_thematics(
+    DatabaseCollection(thematic_collection): DatabaseCollection<Thematic>,
+) -> Result<Json<Vec<Thematic>>, ServerError> {
+    let cursor = thematic_collection.find(None, None).await?;
+    let result = cursor.try_collect().await?;
+    Ok(Json(result))
 }
