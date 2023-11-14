@@ -22,6 +22,9 @@ pub struct CreateThematicRequest {
     pub title: String,
 }
 
+// It's ok to just add a new name to the existing struct..
+pub type UpdateThematicRequest = CreateThematicRequest;
+
 fn inline_object_id<'de, D>(deserializer: D) -> Result<String, D::Error> where D: Deserializer<'de> {
     let id: ObjectId = de::Deserialize::deserialize(deserializer)?;
     Ok(id.to_hex())
